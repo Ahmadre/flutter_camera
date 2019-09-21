@@ -80,7 +80,6 @@ public class Camera {
       final String cameraName,
       final String resolutionPreset,
       final boolean enableAudio,
-      final boolean enableAudio,
       final boolean enableFlash,
       final boolean enableAutoExposure)
       throws CameraAccessException {
