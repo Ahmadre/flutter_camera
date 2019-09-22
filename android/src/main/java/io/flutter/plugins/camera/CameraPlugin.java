@@ -27,20 +27,20 @@ public class CameraPlugin implements MethodCallHandler {
   private CameraPlugin(Registrar registrar) {
     this.registrar = registrar;
     this.view = registrar.view();
-    this.imageStreamChannel =
-        new EventChannel(registrar.messenger(), "plugins.flutter.io/camera/imageStream");
+    this.imageStreamChannel = new EventChannel(registrar.messenger(), "plugins.flutter.io/camera/imageStream");
   }
 
   public static void registerWith(Registrar registrar) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-      // When a background flutter view tries to register the plugin, the registrar has no activity.
-      // We stop the registration process as this plugin is foreground only. Also, if the sdk is
+      // When a background flutter view tries to register the plugin, the registrar
+      // has no activity.
+      // We stop the registration process as this plugin is foreground only. Also, if
+      // the sdk is
       // less than 21 (min sdk for Camera2) we don't register the plugin.
       return;
     }
 
-    final MethodChannel channel =
-        new MethodChannel(registrar.messenger(), "plugins.flutter.io/camera");
+    final MethodChannel channel = new MethodChannel(registrar.messenger(), "plugins.flutter.io/camera");
 
     channel.setMethodCallHandler(new CameraPlugin(registrar));
   }
@@ -49,22 +49,13 @@ public class CameraPlugin implements MethodCallHandler {
     String cameraName = call.argument("cameraName");
     String resolutionPreset = call.argument("resolutionPreset");
     boolean enableAudio = call.argument("enableAudio");
-    boolean enableFlash = call.argument("enableFlash");
-    boolean enableAutoExposure = call.argument("enableAutoExposure");
-    camera =
-        new Camera(
-            registrar.activity(),
-            view,
-            cameraName,
-            resolutionPreset,
-            enableAudio,
-            enableFlash,
-            enableAutoExposure);
+    boolean autoInitializeFlash = call.argument("autoInitializeFlash");
+    boolean autoInitializeAutoExposure = call.argument("autoInitializeAutoExposure");
+    camera = new Camera(registrar.activity(), view, cameraName, resolutionPreset, enableAudio, autoInitializeFlash,
+        autoInitializeAutoExposure);
 
-    EventChannel cameraEventChannel =
-        new EventChannel(
-            registrar.messenger(),
-            "flutter.io/cameraPlugin/cameraEvents" + camera.getFlutterTexture().id());
+    EventChannel cameraEventChannel = new EventChannel(registrar.messenger(),
+        "flutter.io/cameraPlugin/cameraEvents" + camera.getFlutterTexture().id());
     camera.setupCameraEventChannel(cameraEventChannel);
 
     camera.open(result);
@@ -73,136 +64,119 @@ public class CameraPlugin implements MethodCallHandler {
   @Override
   public void onMethodCall(@NonNull MethodCall call, @NonNull final Result result) {
     switch (call.method) {
-      case "availableCameras":
-        try {
-          result.success(CameraUtils.getAvailableCameras(registrar.activity()));
-        } catch (Exception e) {
-          handleException(e, result);
-        }
-        break;
-      case "initialize":
-        {
-          if (camera != null) {
-            camera.close();
-          }
-          cameraPermissions.requestPermissions(
-              registrar,
-              call.argument("enableAudio"),
-              (String errCode, String errDesc) -> {
-                if (errCode == null) {
-                  try {
-                    instantiateCamera(call, result);
-                  } catch (Exception e) {
-                    handleException(e, result);
-                  }
-                } else {
-                  result.error(errCode, errDesc, null);
-                }
-              });
+    case "availableCameras":
+      try {
+        result.success(CameraUtils.getAvailableCameras(registrar.activity()));
+      } catch (Exception e) {
+        handleException(e, result);
+      }
+      break;
+    case "initialize": {
+      if (camera != null) {
+        camera.close();
+      }
+      cameraPermissions.requestPermissions(registrar, call.argument("enableAudio"),
+          (String errCode, String errDesc) -> {
+            if (errCode == null) {
+              try {
+                instantiateCamera(call, result);
+              } catch (Exception e) {
+                handleException(e, result);
+              }
+            } else {
+              result.error(errCode, errDesc, null);
+            }
+          });
 
-          break;
-        }
-      case "takePicture":
-        {
-          camera.takePicture(call.argument("path"), result);
-          break;
-        }
-      case "prepareForVideoRecording":
-        {
-          // This optimization is not required for Android.
-          result.success(null);
-          break;
-        }
-      case "startVideoRecording":
-        {
-          camera.startVideoRecording(call.argument("filePath"), result);
-          break;
-        }
-      case "stopVideoRecording":
-        {
-          camera.stopVideoRecording(result);
-          break;
-        }
-      case "pauseVideoRecording":
-        {
-          camera.pauseVideoRecording(result);
-          break;
-        }
-      case "resumeVideoRecording":
-        {
-          camera.resumeVideoRecording(result);
-          break;
-        }
-      case "startImageStream":
-        {
-          try {
-            camera.startPreviewWithImageStream(imageStreamChannel);
-            result.success(null);
-          } catch (Exception e) {
-            handleException(e, result);
-          }
-          break;
-        }
-      case "stopImageStream":
-        {
-          try {
-            camera.startPreview();
-            result.success(null);
-          } catch (Exception e) {
-            handleException(e, result);
-          }
-          break;
-        }
-      case "flashOn":
-        {
-          camera.setFlashMode(result, true, call.argument("level"));
-          break;
-        }
-      case "flashOff":
-        {
-          camera.setFlashMode(result, false);
-          break;
-        }
-      case "hasFlash":
-        {
-          result.success(hasFlash());
-          break;
-        }
-      case "autoExposureOn":
-        {
-          camera.setAutoExposureMode(result, true);
-          break;
-        }
-      case "autoExposureOff":
-        {
-          camera.setAutoExposureMode(result, false);
-          break;
-        }
-      case "dispose":
-        {
-          if (camera != null) {
-            camera.dispose();
-          }
-          result.success(null);
-          break;
-        }
-      default:
-        result.notImplemented();
-        break;
+      break;
+    }
+    case "takePicture": {
+      camera.takePicture(call.argument("path"), (Integer) call.argument("flashMode"), result);
+      break;
+    }
+    case "prepareForVideoRecording": {
+      // This optimization is not required for Android.
+      result.success(null);
+      break;
+    }
+    case "startVideoRecording": {
+      camera.startVideoRecording(call.argument("filePath"), result);
+      break;
+    }
+    case "stopVideoRecording": {
+      camera.stopVideoRecording(result);
+      break;
+    }
+    case "pauseVideoRecording": {
+      camera.pauseVideoRecording(result);
+      break;
+    }
+    case "resumeVideoRecording": {
+      camera.resumeVideoRecording(result);
+      break;
+    }
+    case "startImageStream": {
+      try {
+        camera.startPreviewWithImageStream(imageStreamChannel);
+        result.success(null);
+      } catch (Exception e) {
+        handleException(e, result);
+      }
+      break;
+    }
+    case "stopImageStream": {
+      try {
+        camera.startPreview();
+        result.success(null);
+      } catch (Exception e) {
+        handleException(e, result);
+      }
+      break;
+    }
+    case "flashOn": {
+      camera.setFlashMode(result, true, call.argument("level"));
+      break;
+    }
+    case "flashOff": {
+      camera.setFlashMode(result, false);
+      break;
+    }
+    case "hasFlash": {
+      result.success(hasFlash());
+      break;
+    }
+    case "autoExposureOn": {
+      camera.setAutoExposureMode(result, true);
+      break;
+    }
+    case "autoExposureOff": {
+      camera.setAutoExposureMode(result, false);
+      break;
+    }
+    case "dispose": {
+      if (camera != null) {
+        camera.dispose();
+      }
+      result.success(null);
+      break;
+    }
+    default:
+      result.notImplemented();
+      break;
     }
   }
 
   private boolean hasFlash() {
-    return registrar
-        .context()
-        .getApplicationContext()
-        .getPackageManager()
+    return registrar.context().getApplicationContext().getPackageManager()
         .hasSystemFeature(PackageManager.FEATURE_CAMERA_FLASH);
   }
 
-  // We move catching CameraAccessException out of onMethodCall because it causes a crash
-  // on plugin registration for sdks incompatible with Camera2 (< 21). We want this plugin to
-  // to be able to compile with <21 sdks for apps that want the camera and support earlier version.
+  // We move catching CameraAccessException out of onMethodCall because it causes
+  // a crash
+  // on plugin registration for sdks incompatible with Camera2 (< 21). We want
+  // this plugin to
+  // to be able to compile with <21 sdks for apps that want the camera and support
+  // earlier version.
   @SuppressWarnings("ConstantConditions")
   private void handleException(Exception exception, Result result) {
     if (exception instanceof CameraAccessException) {

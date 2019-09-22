@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -11,7 +12,7 @@ import 'package:flutter/widgets.dart';
 
 part 'camera_image.dart';
 
-final MethodChannel _channel = const MethodChannel('plugins.flutter.io/camera');
+const MethodChannel _channel = MethodChannel('plugins.flutter.io/camera');
 
 enum CameraLensDirection { front, back, external }
 
@@ -38,6 +39,16 @@ enum ResolutionPreset {
   max,
 }
 
+enum FlashMode {
+  /// Always use flash when capturing a still image.
+  flashOn,
+
+  /// Never use flash when capturing a still image.
+  flashOff,
+  // Automatically determine whether or not flash shoudld be used when capturing a still image.
+  // flashAuto,
+}
+
 typedef onLatestImageAvailable = Function(CameraImage image);
 
 /// Returns the resolution preset as a String.
@@ -59,6 +70,19 @@ String serializeResolutionPreset(ResolutionPreset resolutionPreset) {
   throw ArgumentError('Unknown ResolutionPreset value');
 }
 
+/// Returns the flash mode as a String.
+int serializeFlashMode(FlashMode flashMode) {
+  switch (flashMode) {
+    case FlashMode.flashOff:
+      return 0;
+    case FlashMode.flashOn:
+      return Platform.isIOS ? 1 : 3;
+    // case FlashMode.flashAuto:
+    //   return 2;
+  }
+  throw ArgumentError('Unknown FlashMode value');
+}
+
 CameraLensDirection _parseCameraLensDirection(String string) {
   switch (string) {
     case 'front':
@@ -76,8 +100,8 @@ CameraLensDirection _parseCameraLensDirection(String string) {
 /// May throw a [CameraException].
 Future<List<CameraDescription>> availableCameras() async {
   try {
-    final List<Map<dynamic, dynamic>> cameras = await _channel
-        .invokeListMethod<Map<dynamic, dynamic>>('availableCameras');
+    final List<Map<dynamic, dynamic>> cameras =
+        await _channel.invokeListMethod<Map<dynamic, dynamic>>('availableCameras');
     return cameras.map((Map<dynamic, dynamic> camera) {
       return CameraDescription(
         name: camera['name'],
@@ -107,9 +131,7 @@ class CameraDescription {
 
   @override
   bool operator ==(Object o) {
-    return o is CameraDescription &&
-        o.name == name &&
-        o.lensDirection == lensDirection;
+    return o is CameraDescription && o.name == name && o.lensDirection == lensDirection;
   }
 
   @override
@@ -142,9 +164,7 @@ class CameraPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return controller.value.isInitialized
-        ? Texture(textureId: controller._textureId)
-        : Container();
+    return controller.value.isInitialized ? Texture(textureId: controller._textureId) : Container();
   }
 }
 
@@ -244,8 +264,8 @@ class CameraController extends ValueNotifier<CameraValue> {
     this.description,
     this.resolutionPreset, {
     this.enableAudio = true,
-    this.enableFlash = false,
-    this.enableAutoExposure = true,
+    this.autoInitializeFlash = false,
+    this.autoInitializeAutoExposure = false,
   }) : super(const CameraValue.uninitialized());
 
   final CameraDescription description;
@@ -255,10 +275,10 @@ class CameraController extends ValueNotifier<CameraValue> {
   final bool enableAudio;
 
   /// Switch ON the flash when a camera is initialized
-  final bool enableFlash;
+  final bool autoInitializeFlash;
 
   /// Switch ON the Auto Exposure when a camera is initialized
-  final bool enableAutoExposure;
+  final bool autoInitializeAutoExposure;
 
   int _textureId;
   bool _isDisposed = false;
@@ -275,15 +295,14 @@ class CameraController extends ValueNotifier<CameraValue> {
     }
     try {
       _creatingCompleter = Completer<void>();
-      final Map<String, dynamic> reply =
-          await _channel.invokeMapMethod<String, dynamic>(
+      final Map<String, dynamic> reply = await _channel.invokeMapMethod<String, dynamic>(
         'initialize',
         <String, dynamic>{
           'cameraName': description.name,
           'resolutionPreset': serializeResolutionPreset(resolutionPreset),
           'enableAudio': enableAudio,
-          'enableFlash': enableFlash,
-          'enableAutoExposure': enableAutoExposure,
+          'autoInitializeFlash': autoInitializeFlash,
+          'autoInitializeAutoExposure': autoInitializeAutoExposure,
         },
       );
       _textureId = reply['textureId'];
@@ -298,9 +317,7 @@ class CameraController extends ValueNotifier<CameraValue> {
       throw CameraException(e.code, e.message);
     }
     _eventSubscription =
-        EventChannel('flutter.io/cameraPlugin/cameraEvents$_textureId')
-            .receiveBroadcastStream()
-            .listen(_listener);
+        EventChannel('flutter.io/cameraPlugin/cameraEvents$_textureId').receiveBroadcastStream().listen(_listener);
     _creatingCompleter.complete();
     return _creatingCompleter.future;
   }
@@ -347,8 +364,11 @@ class CameraController extends ValueNotifier<CameraValue> {
   /// If a file already exists at the provided path an error will be thrown.
   /// The file can be read as this function returns.
   ///
+  /// [flashMode] is set to FlashMode.flashAuto by default.
+  /// Available options are FlashMode.{flashOn|flashOff|flashAuto}.
+  ///
   /// Throws a [CameraException] if the capture fails.
-  Future<void> takePicture(String path) async {
+  Future<void> takePicture(String path, {FlashMode flashMode = FlashMode.flashOff}) async {
     if (!value.isInitialized || _isDisposed) {
       throw CameraException(
         'Uninitialized CameraController.',
@@ -365,7 +385,11 @@ class CameraController extends ValueNotifier<CameraValue> {
       value = value.copyWith(isTakingPicture: true);
       await _channel.invokeMethod<void>(
         'takePicture',
-        <String, dynamic>{'textureId': _textureId, 'path': path},
+        <String, dynamic>{
+          'textureId': _textureId,
+          'path': path,
+          'flashMode': serializeFlashMode(flashMode),
+        },
       );
       value = value.copyWith(isTakingPicture: false);
     } on PlatformException catch (e) {
@@ -413,10 +437,8 @@ class CameraController extends ValueNotifier<CameraValue> {
     } on PlatformException catch (e) {
       throw CameraException(e.code, e.message);
     }
-    const EventChannel cameraEventChannel =
-        EventChannel('plugins.flutter.io/camera/imageStream');
-    _imageStreamSubscription =
-        cameraEventChannel.receiveBroadcastStream().listen(
+    const EventChannel cameraEventChannel = EventChannel('plugins.flutter.io/camera/imageStream');
+    _imageStreamSubscription = cameraEventChannel.receiveBroadcastStream().listen(
       (dynamic imageData) {
         onAvailable(CameraImage._fromPlatformData(imageData));
       },
@@ -534,8 +556,7 @@ class CameraController extends ValueNotifier<CameraValue> {
     }
 
     try {
-      await _channel
-          .invokeMethod<void>('flashOn', <String, dynamic>{'level': level});
+      await _channel.invokeMethod<void>('flashOn', <String, dynamic>{'level': level});
     } on PlatformException catch (e) {
       throw CameraException(e.code, e.message);
     }

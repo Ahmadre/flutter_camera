@@ -117,8 +117,8 @@ class CameraImage {
       : format = ImageFormat._fromPlatformData(data['format']),
         height = data['height'],
         width = data['width'],
-        planes = List<Plane>.unmodifiable(data['planes']
-            .map((dynamic planeData) => Plane._fromPlatformData(planeData)));
+        planes =
+            List<Plane>.unmodifiable(data['planes'].map((dynamic planeData) => Plane._fromPlatformData(planeData)));
 
   /// Format of the image provided.
   ///
